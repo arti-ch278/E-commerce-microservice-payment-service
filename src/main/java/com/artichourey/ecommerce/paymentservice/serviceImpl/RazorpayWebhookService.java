@@ -29,6 +29,8 @@ public class RazorpayWebhookService {
 	private String webhookSecret;
 	
 	public void processWebhook(String signature, String payload) {
+		log.info("Received Razorpay webhook payload: {}", payload);
+		try {
 		verifySignature(signature, payload);
 		JSONObject event=new JSONObject(payload);
 		String eventType = event.getString("event");
@@ -41,6 +43,13 @@ public class RazorpayWebhookService {
 		default-> log.warn("unhandled razorpay event ", eventType);
 			
 		}
+		}catch (SecurityException e) {
+            log.error("Webhook signature verification failed!", e);
+            throw e;
+        } catch (Exception e) {
+            log.error("Error processing Razorpay webhook", e);
+            throw e;
+	}
 	}
 	
 
@@ -48,23 +57,27 @@ public class RazorpayWebhookService {
 		JSONObject paymentEntity=extractPaymentEntity(event);
 		String razorpayOrderId=paymentEntity.getString("order_id");
 		String razorpayPaymentId=paymentEntity.getString("id");
+        log.info("Handling payment success for Razorpay orderId: {}, paymentId: {}", razorpayOrderId, razorpayPaymentId);
 		Payment payment =paymentRepository.findByTransactionId(razorpayOrderId)
 		.orElseThrow(()-> new IllegalStateException("Payment not found for razorpay orderId"));
 		payment.setPaymentStatus(PaymentStatus.SUCCESS);
 		payment.setGatewayPaymentId(razorpayPaymentId);
 		orderClient.confirmOrder(payment.getOrderId());
 		inventoryClient.commitInventory(payment.getOrderId());
+		log.info("Payment SUCCESS processed for orderId: {}. Inventory committed and order confirmed.", payment.getOrderId());
 	}
 
 
 	private void handlePaymentFailed(JSONObject event) {
 		JSONObject paymentEntity=extractPaymentEntity(event);
 		String razorpayOrderId=paymentEntity.getString("order_id");
+		log.warn("Handling payment failure for Razorpay orderId: {}", razorpayOrderId);
 		Payment payment =paymentRepository.findByTransactionId(razorpayOrderId)
 				.orElseThrow(()-> new IllegalStateException("Payment not found for razorpay orderId"));
 		payment.setPaymentStatus(PaymentStatus.FAILED);
 		inventoryClient.rollbackInventory(payment.getOrderId());
 		orderClient.failOrder(payment.getOrderId());
+		log.info("Payment FAILED processed for orderId: {}. Inventory rolled back and order marked failed.", payment.getOrderId());
 	}
 
 	private JSONObject extractPaymentEntity(JSONObject event) {
@@ -76,6 +89,7 @@ public class RazorpayWebhookService {
 	private void verifySignature(String signature, String payload) {
 		try {
 			Utils.verifyWebhookSignature(payload, signature, webhookSecret);
+			log.info("Webhook signature verified successfully");
 		}catch(Exception e) {
 			log.error("invalid razorpay webhook signature");
 			throw new SecurityException("Invalid razorpay webhook signature");
