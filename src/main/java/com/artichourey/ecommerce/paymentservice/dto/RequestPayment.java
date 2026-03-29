@@ -30,7 +30,11 @@ public class RequestPayment {
 	private BigDecimal amount;
 	
 	@NotNull
-	@Schema(description = "Payment method used", example = "CREDIT_CARD", required = true)
+	@Schema(
+		    description = "Payment method used (CARD, UPI, NET_BANKING, WALLET, CASH_ON_DELIVERY)",
+		    example = "UPI",
+		    required = true)
 	private PaymentMethod paymentMethod;
+	private Long userId;
 
 }
