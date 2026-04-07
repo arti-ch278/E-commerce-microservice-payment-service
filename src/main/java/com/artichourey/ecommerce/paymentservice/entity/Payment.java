@@ -43,10 +43,12 @@ public class Payment {
 	@Column(nullable=false,precision=12, scale=2)
 	private BigDecimal amount;
 	@Enumerated(EnumType.STRING)
-	@Column(nullable=false)
+	@Column(columnDefinition = "varchar(50)")
+	//@Column(nullable=false)
 	private PaymentStatus paymentStatus;
 	@Enumerated(EnumType.STRING)
-	@Column(nullable=false)
+	@Column(columnDefinition = "varchar(50)")
+	//@Column(nullable=false)
 	private PaymentMethod paymentMethod;
 	@Column(unique=true,nullable=true)
 	private String transactionId;
