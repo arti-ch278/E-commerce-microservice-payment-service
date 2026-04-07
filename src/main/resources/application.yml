@@ -4,11 +4,26 @@ spring:
     bootstrap-servers: localhost:9092
 
     producer:
-       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-    properties:
-      spring.json.add.type.headers: true
- 
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 5
+      properties:
+        enable.idempotence: true
+        spring.json.add.type.headers: false   # IMPORTANT (avoid cross-service issues)
+
+    consumer:
+      group-id: payment-service-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "com.artichourey.ecommerce.events,com.artichourey.ecommerce.orderservice.events"
+
+    listener:
+      ack-mode: record   # better control for retry/DLQ
+
+# Swagger / OpenAPI
 springdoc:
   api-docs:
     enabled: true
@@ -16,15 +31,18 @@ springdoc:
     enabled: true
   override-with-generic-response: false
   default-produces-media-type: application/json
-  default-consumes-media-type: application/json 	
+  default-consumes-media-type: application/json
+
+# Tracing (Zipkin)
 management:
   tracing:
     sampling:
       probability: 1.0
-
   zipkin:
     base-url: http://localhost:9411
     enabled: true
+
+# Logging with traceId/spanId
 logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{traceId},%X{spanId}] %-5level %logger - %msg%n"
