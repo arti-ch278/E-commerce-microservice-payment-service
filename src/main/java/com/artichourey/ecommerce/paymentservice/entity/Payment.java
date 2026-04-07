@@ -23,9 +23,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-
-
-
 @Getter
 @Setter
 @AllArgsConstructor
@@ -36,35 +33,34 @@ import lombok.Setter;
 		@Index(columnList="orderId"),
 		@Index(columnList="transactionId")
 })
-
-
-
 public class Payment {
 	
 	@Id
 	@GeneratedValue(strategy=GenerationType.IDENTITY)
 	private Long id;
-	@Column(nullable=false)
+	@Column(nullable=false, unique=true)
 	private String orderId;
 	@Column(nullable=false,precision=12, scale=2)
 	private BigDecimal amount;
 	@Enumerated(EnumType.STRING)
-	@Column(nullable=false)
+	@Column(columnDefinition = "varchar(50)")
+	//@Column(nullable=false)
 	private PaymentStatus paymentStatus;
 	@Enumerated(EnumType.STRING)
-	@Column(nullable=false)
+	@Column(columnDefinition = "varchar(50)")
+	//@Column(nullable=false)
 	private PaymentMethod paymentMethod;
 	@Column(unique=true,nullable=true)
 	private String transactionId;
 	private String gatewayPaymentId;
+	private Long userId;
 
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 	@PrePersist
 	void createdOn() {
 		this.createdAt=LocalDateTime.now();
-		this.updatedAt=LocalDateTime.now();
-		
+		this.updatedAt=LocalDateTime.now();	
 	}
 	@PreUpdate
 	void updatedOn() {

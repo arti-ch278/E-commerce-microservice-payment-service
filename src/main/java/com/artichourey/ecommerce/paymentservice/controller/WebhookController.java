@@ -9,19 +9,29 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.artichourey.ecommerce.paymentservice.serviceImpl.RazorpayWebhookService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
+@Tag(name = "Payment Webhooks", description = "Endpoints for payment provider webhooks")
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/payment")
+@RequestMapping("/api/payments")
 public class WebhookController {
-	
-	private final RazorpayWebhookService razorpayWebhookService;	
-	
-	@PostMapping("/webhook/razorpay")
-	public ResponseEntity<Void> handelWebhook(@RequestHeader("X-Razorpay-Signature") String signature, @RequestBody String payload){
-		razorpayWebhookService.processWebhook(signature, payload);
-		return ResponseEntity.ok().build();
-		}
 
+    private final RazorpayWebhookService razorpayWebhookService;
+
+    @Operation(
+        summary = "Handle Razorpay webhook",
+        description = "Receives webhook events from Razorpay. Public endpoint, no JWT required."
+    )
+    @PostMapping("/webhook/razorpay")
+    public ResponseEntity<Void> handleWebhook( 
+            @RequestHeader("X-Razorpay-Signature") String signature,
+            @RequestBody String payload) {
+
+        razorpayWebhookService.processWebhook(signature, payload);
+
+        return ResponseEntity.noContent().build(); 
+    }
 }
