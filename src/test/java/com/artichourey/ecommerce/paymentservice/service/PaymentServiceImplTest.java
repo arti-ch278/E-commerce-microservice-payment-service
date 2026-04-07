@@ -1,20 +1,19 @@
 package com.artichourey.ecommerce.paymentservice.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
 import java.math.BigDecimal;
 import java.util.Optional;
-
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
 import com.artichourey.ecommerce.events.PaymentCompletedEvent;
 import com.artichourey.ecommerce.paymentservice.dto.PaymentStatusUpdateRequest;
 import com.artichourey.ecommerce.paymentservice.dto.RequestPayment;
@@ -22,7 +21,9 @@ import com.artichourey.ecommerce.paymentservice.dto.ResponsePayment;
 import com.artichourey.ecommerce.paymentservice.entity.Payment;
 import com.artichourey.ecommerce.paymentservice.enums.PaymentMethod;
 import com.artichourey.ecommerce.paymentservice.enums.PaymentStatus;
+import com.artichourey.ecommerce.paymentservice.exception.PaymentAmountMismatchException;
 import com.artichourey.ecommerce.paymentservice.producer.PaymentEventProducer;
+import com.artichourey.ecommerce.paymentservice.repository.PaymentOrderInfoRepository;
 import com.artichourey.ecommerce.paymentservice.repository.PaymentRepository;
 import com.artichourey.ecommerce.paymentservice.serviceImpl.PaymentServiceImpl;
 
@@ -36,10 +37,15 @@ class PaymentServiceImplTest {
     private PaymentRepository paymentRepository;
 
     @Mock
+    private PaymentOrderInfoRepository paymentOrderInfoRepository; 
+
+    @Mock
     private PaymentEventProducer paymentEventProducer;
 
+    // SUCCESS CASE
     @Test
     void createPayment_NewPayment_ShouldSaveAndReturn() {
+
         RequestPayment request = RequestPayment.builder()
                 .orderId("ORD123")
                 .amount(BigDecimal.valueOf(500))
@@ -47,18 +53,29 @@ class PaymentServiceImplTest {
                 .userId(1L)
                 .build();
 
-        when(paymentRepository.findByOrderId("ORD123")).thenReturn(Optional.empty());
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> i.getArguments()[0]);
+        when(paymentRepository.findByOrderId("ORD123"))
+                .thenReturn(Optional.empty());
+
+        //  CRITICAL FIX
+        when(paymentOrderInfoRepository.findAmountByOrderId("ORD123"))
+                .thenReturn(BigDecimal.valueOf(500));
+
+        when(paymentRepository.save(any(Payment.class)))
+                .thenAnswer(i -> i.getArguments()[0]);
 
         ResponsePayment response = paymentService.createPayment(request);
 
+        assertNotNull(response);
         assertEquals("ORD123", response.getOrderId());
         assertEquals(PaymentStatus.PENDING, response.getPaymentStatus());
+
         verify(paymentRepository).save(any(Payment.class));
     }
 
+    //  DUPLICATE REQUEST
     @Test
     void createPayment_ExistingPayment_ShouldReturnExisting() {
+
         Payment existing = Payment.builder()
                 .id(1L)
                 .orderId("ORD123")
@@ -67,17 +84,64 @@ class PaymentServiceImplTest {
                 .transactionId("TXN123")
                 .build();
 
-        when(paymentRepository.findByOrderId("ORD123")).thenReturn(Optional.of(existing));
+        when(paymentRepository.findByOrderId("ORD123"))
+                .thenReturn(Optional.of(existing));
 
         ResponsePayment response = paymentService.createPayment(
-                RequestPayment.builder().orderId("ORD123").amount(BigDecimal.valueOf(500)).build());
+                RequestPayment.builder()
+                        .orderId("ORD123")
+                        .amount(BigDecimal.valueOf(500))
+                        .build()
+        );
 
         assertEquals(existing.getTransactionId(), response.getTransactionId());
+
         verify(paymentRepository, never()).save(any());
+        verify(paymentOrderInfoRepository, never()).findAmountByOrderId(any()); // optional check
     }
 
+    // AMOUNT MISMATCH
+    @Test
+    void createPayment_AmountMismatch_ShouldThrowException() {
+
+        RequestPayment request = RequestPayment.builder()
+                .orderId("ORD123")
+                .amount(BigDecimal.valueOf(600))
+                .build();
+
+        when(paymentRepository.findByOrderId("ORD123"))
+                .thenReturn(Optional.empty());
+
+        when(paymentOrderInfoRepository.findAmountByOrderId("ORD123"))
+                .thenReturn(BigDecimal.valueOf(500));
+
+        assertThrows(PaymentAmountMismatchException.class,
+                () -> paymentService.createPayment(request));
+    }
+
+    // ORDER NOT FOUND
+    @Test
+    void createPayment_OrderNotFound_ShouldThrowException() {
+
+        RequestPayment request = RequestPayment.builder()
+                .orderId("ORD123")
+                .amount(BigDecimal.valueOf(500))
+                .build();
+
+        when(paymentRepository.findByOrderId("ORD123"))
+                .thenReturn(Optional.empty());
+
+        when(paymentOrderInfoRepository.findAmountByOrderId("ORD123"))
+                .thenReturn(null);
+
+        assertThrows(RuntimeException.class,
+                () -> paymentService.createPayment(request));
+    }
+
+    // UPDATE STATUS SUCCESS
     @Test
     void updatePaymentStatus_Success_ShouldSendEvent() {
+
         Payment payment = Payment.builder()
                 .id(1L)
                 .orderId("ORD123")
@@ -87,13 +151,21 @@ class PaymentServiceImplTest {
                 .userId(1L)
                 .build();
 
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> i.getArguments()[0]);
+        when(paymentRepository.findById(1L))
+                .thenReturn(Optional.of(payment));
 
-        PaymentStatusUpdateRequest request = new PaymentStatusUpdateRequest(PaymentStatus.SUCCESS);
-        ResponsePayment response = paymentService.updatePaymentStatus(1L, request);
+        when(paymentRepository.save(any(Payment.class)))
+                .thenAnswer(i -> i.getArguments()[0]);
+
+        PaymentStatusUpdateRequest request =
+                new PaymentStatusUpdateRequest(PaymentStatus.SUCCESS);
+
+        ResponsePayment response =
+                paymentService.updatePaymentStatus(1L, request);
 
         assertEquals(PaymentStatus.SUCCESS, response.getPaymentStatus());
-        verify(paymentEventProducer).sendPaymentSuccess(any(PaymentCompletedEvent.class));
+
+        verify(paymentEventProducer)
+                .sendPaymentSuccess(any(PaymentCompletedEvent.class));
     }
 }
