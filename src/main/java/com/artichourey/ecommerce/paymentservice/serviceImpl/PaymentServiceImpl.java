@@ -1,9 +1,9 @@
 package com.artichourey.ecommerce.paymentservice.serviceImpl;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
-
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import com.artichourey.ecommerce.events.PaymentCompletedEvent;
@@ -13,12 +13,13 @@ import com.artichourey.ecommerce.paymentservice.dto.RequestPayment;
 import com.artichourey.ecommerce.paymentservice.dto.ResponsePayment;
 import com.artichourey.ecommerce.paymentservice.entity.Payment;
 import com.artichourey.ecommerce.paymentservice.enums.PaymentStatus;
+import com.artichourey.ecommerce.paymentservice.exception.PaymentAmountMismatchException;
 import com.artichourey.ecommerce.paymentservice.exception.PaymentNotFoundException;
 import com.artichourey.ecommerce.paymentservice.producer.PaymentEventProducer;
+import com.artichourey.ecommerce.paymentservice.repository.PaymentOrderInfoRepository;
 import com.artichourey.ecommerce.paymentservice.repository.PaymentRepository;
 import com.artichourey.ecommerce.paymentservice.service.PaymentService;
 import com.artichourey.ecommerce.paymentservice.util.TransactionGenerate;
-
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,7 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final PaymentEventProducer paymentEventProducer;
+    private final PaymentOrderInfoRepository paymentOrderInfoRepository;
 
     @Override
     public ResponsePayment createPayment(RequestPayment request) {
@@ -38,7 +40,7 @@ public class PaymentServiceImpl implements PaymentService {
         log.info("Processing payment request | orderId={}, amount={}",
                 request.getOrderId(), request.getAmount());
 
-        // First-level idempotency check
+        // Idempotency check
         Optional<Payment> existingPayment = paymentRepository.findByOrderId(request.getOrderId());
 
         if (existingPayment.isPresent()) {
@@ -50,8 +52,25 @@ public class PaymentServiceImpl implements PaymentService {
             return mapToResponse(payment);
         }
 
+        //  Amount validation 
+        BigDecimal orderAmount = paymentOrderInfoRepository.findAmountByOrderId(request.getOrderId());
+
+        if (orderAmount == null) {
+            log.error("Order info not found in Payment Service | orderId={}", request.getOrderId());
+            throw new RuntimeException("Order info not available yet for orderId=" + request.getOrderId());
+        }
+
+        if (request.getAmount().compareTo(orderAmount) != 0) {
+            log.error("Amount mismatch | orderId={}, expected={}, received={}",
+                    request.getOrderId(), orderAmount, request.getAmount());
+
+            throw new PaymentAmountMismatchException(
+                    "Payment amount mismatch! Expected: " + orderAmount + ", Received: " + request.getAmount()
+            );
+        }
+
         try {
-            // Create new payment
+            //  Create payment ONLY if amount matches
             Payment payment = Payment.builder()
                     .orderId(request.getOrderId())
                     .amount(request.getAmount())
@@ -70,17 +89,16 @@ public class PaymentServiceImpl implements PaymentService {
 
         } catch (DataIntegrityViolationException ex) {
 
-            // SECOND-LEVEL PROTECTION (race condition)
+            //  Race condition protection
             log.warn("Duplicate payment detected at DB level (race condition) | orderId={}",
                     request.getOrderId());
 
             Payment existing = paymentRepository.findByOrderId(request.getOrderId())
-                    .orElseThrow(() -> new RuntimeException("Payment exists but not found"));
+                    .orElseThrow(() -> new PaymentNotFoundException("Payment exists but not found"));
 
             return mapToResponse(existing);
         }
     }
-
     @Override
     public ResponsePayment getPaymentByOrderId(String orderId) {
         log.info("Fetching payment for orderId={}", orderId);
@@ -100,7 +118,7 @@ public class PaymentServiceImpl implements PaymentService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + paymentId));
 
-        // IDEMPOTENCY CHECK (VERY IMPORTANT)
+        // IDEMPOTENCY CHECK 
         if (payment.getPaymentStatus() == request.getPaymentStatus()) {
             log.warn("Duplicate status update ignored | orderId={}, status={}",
                     payment.getOrderId(), payment.getPaymentStatus());
