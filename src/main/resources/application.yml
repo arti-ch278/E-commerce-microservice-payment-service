@@ -10,14 +10,15 @@ spring:
       retries: 5
       properties:
         enable.idempotence: true
-        spring.json.add.type.headers: false   # IMPORTANT (avoid cross-service issues)
+        spring.json.add.type.headers: true
 
     consumer:
       group-id: payment-service-group
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      auto-offset-reset: earliest
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      auto-offset-reset: latest
       properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
         spring.json.trusted.packages: "com.artichourey.ecommerce.events,com.artichourey.ecommerce.orderservice.events"
 
     listener:
