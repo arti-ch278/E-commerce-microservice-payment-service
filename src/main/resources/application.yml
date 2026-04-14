@@ -15,7 +15,7 @@ spring:
       retries: 5
       properties:
         enable.idempotence: true
-        spring.json.add.type.headers: true   # IMPORTANT (avoid cross-service issues)
+        spring.json.add.type.headers: true
 
     consumer:
       group-id: payment-service-group
