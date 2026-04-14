@@ -1,7 +1,12 @@
 
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+
 spring:
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BROKER:kafka:9092}
 
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -15,14 +20,19 @@ spring:
     consumer:
       group-id: payment-service-group
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      #value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
-      auto-offset-reset: latest
+      auto-offset-reset: earliest
       properties:
         spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
         spring.json.trusted.packages: "com.artichourey.ecommerce.events,com.artichourey.ecommerce.orderservice.events"
 
     listener:
       ack-mode: record   # better control for retry/DLQ
+
+  zipkin:
+    base-url: ${ZIPKIN_URL:http://localhost:9411}
+    enabled: true
 
 # Swagger / OpenAPI
 springdoc:
@@ -39,11 +49,9 @@ management:
   tracing:
     sampling:
       probability: 1.0
-  zipkin:
-    base-url: http://localhost:9411
-    enabled: true
+  
 
 # Logging with traceId/spanId
-logging:
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{traceId},%X{spanId}] %-5level %logger - %msg%n"
+#logging:
+  #pattern:
+    #console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{traceId},%X{spanId}] %-5level %logger - %msg%n"
