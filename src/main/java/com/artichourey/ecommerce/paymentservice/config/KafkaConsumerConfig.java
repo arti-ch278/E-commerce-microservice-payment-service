@@ -9,6 +9,8 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
+
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -21,24 +23,30 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
-            ConsumerFactory<String, Object> consumerFactory) {
+            ConsumerFactory<String, Object> consumerFactory,
+            ObservationRegistry observationRegistry) {
 
         ConcurrentKafkaListenerContainerFactory<String, Object> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
+
         factory.setConsumerFactory(consumerFactory);
 
-        // Retry: 3 times with 5 seconds delay
+        // Enable tracing
+        factory.getContainerProperties().setObservationEnabled(true);
+        factory.getContainerProperties().setObservationRegistry(observationRegistry);
+
+        // Retry: 3 times with 5 sec delay
         FixedBackOff fixedBackOff = new FixedBackOff(5000L, 3);
 
-        // Dead Letter publishing recoverer
+        // Payment DLT 
         DeadLetterPublishingRecoverer recoverer =
-        	    new DeadLetterPublishingRecoverer(kafkaTemplate,
-        	        (record, ex) -> new TopicPartition("payment-request-topic.DLT", record.partition()));
+                new DeadLetterPublishingRecoverer(kafkaTemplate,
+                        (record, ex) -> new TopicPartition("payment-request-topic.DLT", record.partition()));
 
-        // Error handler
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, fixedBackOff);
+
         errorHandler.setRetryListeners((record, ex, deliveryAttempt) -> {
-            log.warn("Retrying message | topic={} | partition={} | attempt={}",
+            log.warn("Payment Retry | topic={} | partition={} | attempt={}",
                     record.topic(), record.partition(), deliveryAttempt);
         });
 
